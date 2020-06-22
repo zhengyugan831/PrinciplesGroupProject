@@ -9,6 +9,7 @@
 
 #-----------------------------Install and load the needed library-----------------------------#
 library(shiny)
+library(shinyWidgets)
 library(rlang)
 library(highcharter)
 library(stringr)
@@ -17,310 +18,16 @@ library(tidyr)
 library(scales)
 library(lubridate)
 library(skimr)
+library(broom)
+library(magick)
 
 #-------------------------Community Mobility Dataset----------------------
 # import and read the data collected, and assign it to a variable 
-globalMobility <- read.csv(file = "Global_Mobility_Report.csv",header = T, stringsAsFactors=FALSE)
-head(globalMobility)
-str(globalMobility)
+globalMobility <- readRDS("globalMobility.rds")
+airQuality_median <- readRDS("airQuality_median.rds")
+globalMobility_airQuality <- readRDS("globalMobility_airQuality.rds")
+worldCities <- readRDS("worldCities.rds")
 
-table(sapply(globalMobility,class))
-
-"skim() is an alternative to summary(), quickly providing a broad overview of a data frame.
-It handles data of all types, dispatching a different set of summary functions based on the
-types of columns in the data frame."
-skim(globalMobility)
-
-sum(is.na(globalMobility)) #there are 894156 of NA value. Thus, we need perform cleaning
-colnames(globalMobility)
-
-# 1) country_region_code - Nominal
-sum(is.na(globalMobility$country_region_code))# there are 824 NA
-globalMobility_country_region_code_na <- globalMobility %>%
-  filter(is.na(country_region_code))
-
-unique(globalMobility_country_region_code_na$country_region)
-
-"As we can see, its only the Namibia and the the two-letter country abbreviation for Namibia is NA. Thus we should
-treat its country_region_code as string value of NA instead of NA value"
-
-# We have to add in new factor "NA" manually as its a reservered string
-globalMobility[which(globalMobility$country_region == "Namibia" & is.na(globalMobility$country_region_code)),]["country_region_code"] = "NA"
-
-sum(is.na(globalMobility$country_region_code)) ## its now cleaned with NA
-table(globalMobility$country_region_code)
-
-# 2) country_region - Nominal
-sum(is.na(globalMobility$country_region))# there is 0 NA
-
-# 3) sub_region_1 - Nominal
-sum(is.na(globalMobility$sub_region_1))# there is 0 NA
-
-# 4) sub_region_2 - Nominal
-sum(is.na(globalMobility$sub_region_2))# there is 0 NA
-
-
-"
-We can see that country_region_code,country_region,sub_region_1, and sub_region_2 are meant for represent a specific
-location. Since its only the sub_region_2 containing empty string factor and may just meaning that there is really
-no sub_region_2, we can group these column to represent a specific location.
-"
-
-# 5) date - Interval
-sum(is.na(globalMobility$date))# there is 0 NA
-head(globalMobility$date)
-globalMobility$date <- as.Date(globalMobility$date)
-min(globalMobility$date)
-max(globalMobility$date)
-
-# We will trim all whitespace and convert all to upper for comparison
-globalMobility <- data.frame(lapply(globalMobility, function(v) {
-  if (is.character(v)) return(toupper(trimws(v)))
-  else return(v)
-}), stringsAsFactors=FALSE)
-
-head(globalMobility)
-str(globalMobility)
-
-#-------------------------World cities dataset----------------------
-worldCities <- read.csv(file = "worldcities.csv",header = T, stringsAsFactors=FALSE)
-head(worldCities)
-
-# We will trim all whitespace and convert all to upper for comparison
-worldCities <- data.frame(lapply(worldCities, function(v) {
-  if (is.character(v)) return(toupper(trimws(v)))
-  else return(v)
-}), stringsAsFactors=FALSE)
-
-# for those small country like SG and HK, its admin_name default will be empty. Thus we will replace it with
-# city in order increase the matching rate with community mobility dataset.
-worldCities$admin_name <- ifelse(worldCities$admin_name == "", worldCities$city, worldCities$admin_name)
-
-# for those small country like SG and HK, its admin_name default will be empty. Thus we will replace it with
-# city in order increase the matching rate with community mobility dataset.
-globalMobility <- globalMobility %>%
-  mutate(sub_region_1 = ifelse((is.na(sub_region_1) | sub_region_1 == ""), country_region, sub_region_1))
-
-# this is to is there any empty record with admin_name == "",expected to be 0
-worldCities[worldCities$admin_name == "",]
-worldCities[is.na(worldCities$admin_name),]
-worldCities[worldCities$iso2 %in% c("SG","HK","MY"),]
-
-# lets take a look at our country code which is MY
-unique(worldCities[worldCities$iso2 == "MY","admin_name"])
-unique(globalMobility[globalMobility$country_region_code == "MY","sub_region_1"])
-
-worldCities$admin_name = str_replace(worldCities$admin_name,c("KUALA LUMPUR"), c("FEDERAL TERRITORY OF KUALA LUMPUR"))
-worldCities$admin_name = str_replace(worldCities$admin_name,"LABUAN", "LABUAN FEDERAL TERRITORY")
-worldCities$admin_name = str_replace(worldCities$admin_name,"MELAKA", "MALACCA")
-worldCities$admin_name = str_replace(worldCities$admin_name,"PULAU PINANG", "PENANG")
-
-unique(worldCities[worldCities$iso2 == "MY","admin_name"])
-unique(globalMobility[globalMobility$country_region_code == "MY","sub_region_1"])
-
-worldCities[which(worldCities$country == "NAMIBIA" & is.na(worldCities$iso2)),]["iso2"] = "NA"
-
-sum(is.na(worldCities$country)) ## its now cleaned with NA
-
-worldCities[(worldCities$iso2 == "MY" & worldCities$admin_name == "PAHANG"),]
-str(worldCities)
-
-#due the decimal wil be rounded during summarise, we will convert lat and lng to character first
-worldCities$lat <- as.character(worldCities$lat)
-worldCities$lng <- as.character(worldCities$lng)
-
-str(worldCities)
-world_city <- worldCities %>%
-  select(iso2,admin_name,city,lat,lng) %>%
-  group_by(iso2,admin_name) %>%
-  summarise(City = first(city),lat = first(lat),lng = first(lng))
-
-world_city[(world_city$iso2 == "MY" & world_city$admin_name == "PAHANG"),]
-
-globalMobility <- left_join(globalMobility,world_city,by = c("country_region_code" = "iso2","sub_region_1" = "admin_name"))
-globalMobility[(globalMobility$country_region_code == "MY" & globalMobility$sub_region_1 == "JOHOR"),]
-colnames(globalMobility)
-
-# As you can see that its only those country_region_code = US only having sub_region_2. We will drop those record
-# with sub_region_2 because we will join with air quality dataset which have only country code and city
-globalMobility %>%
-  filter(sub_region_2 != "")
-
-# we will drop sub_region_2 since it will be empty
-globalMobility <- globalMobility[ , !(names(globalMobility) %in% c("sub_region_2"))]
-
-globalMobility[(globalMobility$country_region_code == "MY" & globalMobility$sub_region_1 == "PAHANG"),]
-
-# reverse back the previous copy logic after join dataset with world city dataset
-globalMobility <- globalMobility %>%
-  mutate(sub_region_1 = ifelse(sub_region_1 == country_region, "", sub_region_1))
-
-##arrange df vars by position
-##'vars' must be a named vector, e.g. c("var.name"=1)
-arrange.vars <- function(data, vars){
-  ##stop if not a data.frame (but should work for matrices as well)
-  stopifnot(is.data.frame(data))
-  
-  ##sort out inputs
-  data.nms <- names(data)
-  var.nr <- length(data.nms)
-  var.nms <- names(vars)
-  var.pos <- vars
-  ##sanity checks
-  stopifnot( !any(duplicated(var.nms)), 
-             !any(duplicated(var.pos)) )
-  stopifnot( is.character(var.nms), 
-             is.numeric(var.pos) )
-  stopifnot( all(var.nms %in% data.nms) )
-  stopifnot( all(var.pos > 0), 
-             all(var.pos <= var.nr) )
-  
-  ##prepare output
-  out.vec <- character(var.nr)
-  out.vec[var.pos] <- var.nms
-  out.vec[-var.pos] <- data.nms[ !(data.nms %in% var.nms) ]
-  stopifnot( length(out.vec)==var.nr )
-  
-  ##re-arrange vars by position
-  data <- data[ , out.vec]
-  return(data)
-}
-
-print(colnames(globalMobility))
-globalMobility <- arrange.vars(globalMobility, c("country_region_code"=1, "country_region"=2,"sub_region_1"=3,
-                                                 "City"=4,"lat"=5,"lng"=6))
-
-# sub_region_1 = "" meaning it only selecting record based on country, thus the City, lat and lng will be empty
-globalMobility[(globalMobility$country_region_code == "MY" & globalMobility$sub_region_1 != ""),]
-
-#-------------------------Air Quality dataset----------------------
-airQuality_2019Q4 <- read.csv(file = "waqi-covid19-airqualitydata-2019Q4.csv",header = T, comment.char = '#', stringsAsFactors=FALSE)
-head(airQuality_2019Q4)
-
-airQuality_2020 <- read.csv(file = "waqi-covid19-airqualitydata-2020.csv",header = T, comment.char = '#', stringsAsFactors=FALSE)
-head(airQuality_2020)
-
-airQuality <- rbind(airQuality_2019Q4,airQuality_2020)
-airQuality$Date <- as.Date(airQuality$Date)
-airQuality <- airQuality %>% arrange(Date,Country,City,Specie)
-head(airQuality)
-tail(airQuality)
-
-# We will trim all whitespace and convert all to upper for comparison
-airQuality <- data.frame(lapply(airQuality, function(v) {
-  if (is.character(v)) return(toupper(trimws(v)))
-  else return(v)
-}), stringsAsFactors=FALSE)
-
-head(airQuality)
-
-sum(is.na(airQuality))
-
-unique(airQuality$Specie)
-
-# we will keep only 'CO', 'NO2', 'O3', 'PM10', 'PM25', 'SO2', 'AQI', and 'PM1'
-airQuality <- airQuality %>%
-  filter(Specie %in% c('CO', 'NO2', 'O3', 'PM10', 'PM25', 'SO2', 'AQI', 'PM1'))
-
-head(airQuality)
-tail(airQuality)
-
-# we will drop 'count','min','max','variance' since it will be empty
-airQuality_median <- airQuality[ , !(names(airQuality) %in% c('count','min','max','variance'))]
-head(airQuality_median)
-str(airQuality_median)
-
-airQuality_median <- airQuality_median %>%
-  group_by(Date,Country,City,Specie) %>%
-  mutate(row = row_number()) %>%
-  pivot_wider(names_from = Specie,values_from = median,values_fill=list(median = 0)) %>%
-  ungroup()
-head(airQuality_median)
-airQuality_median <- arrange.vars(airQuality_median, c("row"=1, "Date"=2,"Country"=3,
-                                                       "City"=4,"AQI"=5,"PM1"=9))
-head(airQuality_median)
-
-#-------------------------Merging Community dataset with Air Quality dataset----------------------
-# lets take a look at our country code which is MY
-unique(airQuality_median[airQuality_median$Country == "MY","City"])
-unique(globalMobility[globalMobility$country_region_code == "MY","City"])
-
-globalMobility$City = str_replace(globalMobility$City,"MELAKA", "MALACCA")
-
-globalMobility_airQuality <- inner_join(globalMobility,airQuality_median,by = c("country_region_code" = "Country","City" = "City", "date" = "Date"))
-head(globalMobility_airQuality)
-
-# renam columns
-globalMobility_airQuality <- globalMobility_airQuality %>% 
-  rename(
-    Country = country_region_code,
-    Date = date,
-    State = sub_region_1
-  )
-
-plot_all_out_get_country_region_code <- function(oriData){
-  unique(oriData$country_region_code)
-}
-
-plot_all_out_get_sub_region <- function(oriData,countryRegionCode){
-  if(str_length(countryRegionCode) == 0)
-    return(paste('Country Region Code cannot be empty'))
-  unique(oriData[oriData$country_region_code == countryRegionCode,"sub_region_1"])
-}
-
-plot_all_out <- function(oriData,countryRegionCode,subRegion=''){
-  if(str_length(countryRegionCode) == 0)
-    return(paste('Country Region Code cannot be empty'))
-  if(count(oriData[(oriData$country_region_code == countryRegionCode) & (oriData$sub_region_1 == subRegion),]) == 0)
-    return(paste("Country Region Code:",countryRegionCode,",Sub Region:",subRegion,"is not available"))
-  
-  data = oriData[(oriData$country_region_code == countryRegionCode) & (oriData$sub_region_1 == subRegion),]
-  head(data)
-}
-
-plot_all_out_get_country_region_code(oriData=globalMobility)
-selected_country_region_code = "MY"
-paste("Selected Sub Region list:",selected_country_region_code)
-plot_all_out_get_sub_region(oriData=globalMobility,selected_country_region_code)
-
-plot_all_out(oriData=globalMobility,countryRegionCode='MY',subRegion='JOHOR')
-
-plot_all_out_2_get_country <- function(oriData){
-  unique(oriData$Country)
-}
-
-plot_all_out_2_get_city <- function(oriData,Country){
-  if(str_length(Country) == 0)
-    return(paste('Country cannot be empty'))
-  unique(oriData[oriData$Country == Country,"City"])
-}
-
-plot_all_out_2 <- function(oriData,Country,City){
-  if(str_length(Country) == 0)
-    return(paste('Country cannot be empty'))
-  if(str_length(City) == 0)
-    return(paste('City cannot be empty'))
-  
-  if(count(oriData[(oriData$Country == Country) & (oriData$City == City),]) == 0)
-    return(paste("Country:",Country,",City:",City,"is not available"))
-  
-  data = oriData[(oriData$Country == Country) & (oriData$City == City),]
-  head(data)
-}
-
-plot_all_out_2_get_country(oriData=airQuality_median)
-selected_country = "HK"
-paste("Selected City list:",selected_country)
-plot_all_out_2_get_city(oriData=airQuality_median,selected_country)
-
-plot_all_out_2(oriData=airQuality_median,Country="HK",City="HONG KONG")
-
-plot_all_out_2_get_country(oriData=globalMobility_airQuality)
-selected_country = "HK"
-paste("Selected City list:",selected_country)
-plot_all_out_2_get_city(oriData=globalMobility_airQuality,selected_country)
-
-plot_all_out_2(oriData=globalMobility_airQuality,Country="HK",City="HONG KONG")
 # =================================================================================
 
 # Drop Down List Selection
@@ -372,6 +79,17 @@ country_list_globalMobility <- country_list_globalMobility %>%
   distinct(Country, country_region, .keep_all = TRUE)
 dropdown_country_list_globalMobility <- setNames(country_list_globalMobility$Country, country_list_globalMobility$country_region)
 
+# Dropdown List of Residential vs NO2
+list_residential_NO2 <- globalMobility_airQuality %>%
+  select("Country","country_region","City","residential_percent_change_from_baseline","NO2")
+list_residential_NO2 <- list_residential_NO2[(list_residential_NO2$residential_percent_change_from_baseline != 0 & list_residential_NO2$NO2 != 0),]
+list_residential_NO2 <- na.omit(list_residential_NO2)
+country_list_residential_NO2 <- list_residential_NO2 %>% 
+  select("Country","country_region")
+country_list_residential_NO2 <- unique(country_list_residential_NO2)
+
+dropdown_country_residential_NO2 <- setNames(country_list_residential_NO2$Country, country_list_residential_NO2$country_region)
+
 # =================================================================================
 
 # Create Geographic Heatmap Dataframe
@@ -407,6 +125,9 @@ clean_globalMobility_airQuality <- globalMobility_airQuality %>%
 # Define UI 
 # =================================================================================
 ui <- fluidPage(
+  setBackgroundImage(
+    src = "http://havakalitesi.atasehir.bel.tr/media/filer_public_thumbnails/filer_public/4f/1a/4f1af93f-63d7-4189-b5b9-04f2e1f2a0e5/slider.jpg__2132x1411_q85_subsampling-2.jpg"
+  ),
   wellPanel(
     fluidRow(
       column(
@@ -423,52 +144,56 @@ ui <- fluidPage(
         tabsetPanel(
           tabPanel("Home",
                    h3("Introduction"),
-                   br(),
                    p("Due to the spreading of Covid-19, many countries had announced differrent movement control order from time to time. Most common one that we know is social distancing at initial stage. Eventually, it upgraded to country lock down which forbidden people to travel into their country or travel out from their country. Covid-19 had snatched so many lives without showing any mercy. All of us gotta stay at home for safe in order reduce any body contact between human. We are not encouraged to do any size of gathering during this period. Some of us even shop for grocery once in a week to avoid crowded area. This project is to show you how its going for our community mobility in each country. Also, we are about show you how is the air quality index being impacted."),
-                   br()),
-          tabPanel("Objective & Questions",
+                   br(),
                    h3("Objective"),
-                   br(),
-                   p("To prove Air Quality Index is impacted by Community Mobility during Covid-19 period."),
-                   br(),
+                   p("To promote enviromental awareness among society to reduce human activities/community mobility which affecting the air quality."),
                    br(),
                    h3("Interesting Question"),
-                   br(),
                    p("1. What is the impact to the community mobility during this period of Covid-19 globally?"),
                    p("2. What is the impact to the air quality during this period of Covid-19 globally?"),
                    p("3. Is it truth that the air quality is being impacted by the community mobility?"),
-                   br()),
-          tabPanel("Knowledge",
+                   br(),
                    h3("Something you need to know"),
-                   br(),
                    p("WHO states: \"In most urban environments in Europe, the principal source of NO2 is NOx from motor vehicles of all types and energy production in some places [e.g., power plants, domestic heating].\""),
-                   br(),
                    p("Nitrogen dioxide primary emission of nitrogen oxide (NOx) in the environment. Over the past 50 years in Europe, the motor vehicle exhaust has largely replaced the other natural sources of NOx, for example, the burning of forest and fossil fuels such as coal, oil, and gas."),
-                   br(),
                    p("The motor vehicle emission the NOx is more than half of the total of NOx in Europe. Based on the data in 1990, the total of NOx emission in Europe is higher than United States of America."),
-                   br(),
                    p("Moreover, a higher concentration of NO2 inflames the human respiratory system and causes a lot of health problems such as coughing, bronchitis, and difficult breathing. When the NO2 combines and interacts with other chemicals will form acid rain, make air hazy, and even polluted the nutrient in coastal waters."),
-                   br(),
                    p("Thus, a higher concentration of NO2 will impact the whole ecosystem seriously."),
+                   a("Source: https://www.greenfacts.org/en/nitrogen-dioxide-no2/level-2/03-exposure.htm#1", href="https://www.greenfacts.org/en/nitrogen-dioxide-no2/level-2/03-exposure.htm#1"),
                    br(),
-                   p("Source: "),
-                   a("https://www.greenfacts.org/en/nitrogen-dioxide-no2/level-2/03-exposure.htm#1", href="https://www.greenfacts.org/en/nitrogen-dioxide-no2/level-2/03-exposure.htm#1"),
-                   br()),
-          tabPanel("Air Quality (Map)",
+                   br(),
+                   br(),
+                   imageOutput("img_ozone", height = "100%"),
+                   br(),
+                   a("Source : http://www.apis.ac.uk/overview/pollutants/overview_o3.htm", href="http://www.apis.ac.uk/overview/pollutants/overview_o3.htm"),
+                   br(),
+                   br(),
+                   br(),
+                   imageOutput("img_aqi", height = "100%"),
+                   br(),
+                   a("Source : https://www.epa.gov/wildfire-smoke-course/wildfire-smoke-and-your-patients-health-air-quality-index", href="https://www.epa.gov/wildfire-smoke-course/wildfire-smoke-and-your-patients-health-air-quality-index"),
+          ),
+          tabPanel("Geographical Heatmap",
                    sidebarLayout(
                      sidebarPanel(
                        width = 3,
-                       radioButtons("aqi_no2_radio", label = "Mode",
+                       radioButtons("aqi_no2_radio", label = h4("Species"),
                                     choices = list("AQI" = 1, "NO2" = 2), 
                                     selected = 1),
+                       helpText("Please select the mode to filter AQI or NO2 result are you interested"),
+                       br(),
                        uiOutput("country_input"),
-                       sliderInput("date",
-                                   "",
+                       helpText("Please select country to view other country result"),
+                       br(),
+                       sliderInput("date", 
+                                   label = h4("Date"),
                                    min = as.Date(min(df_air_quality_heatmap$Date),"%Y-%m-%d"),
                                    max = as.Date(max(df_air_quality_heatmap$Date),"%Y-%m-%d"),
                                    value = as.Date(min(df_air_quality_heatmap$Date)),
                                    timeFormat = "%Y-%m-%d",
-                                   animate = animationOptions(loop = FALSE, interval = 500))
+                                   animate = animationOptions(loop = FALSE, interval = 200)),
+                       helpText("You may adjust slider to change the result by date")
                      ),
                      
                      mainPanel(
@@ -478,14 +203,17 @@ ui <- fluidPage(
                      )
                    )
           ),
-          tabPanel("Air Quality (Graph)",
+          tabPanel("Density Plot of Air Quality",
                    sidebarLayout(
                      sidebarPanel(
                        width = 3,
-                       selectInput("region2", "Country:", 
-                                   choices = dropdown_country_list_air_quality),
+                       selectInput("region2", h4("Country"), 
+                                   choices = dropdown_country_list_air_quality,
+                                   selected = "GB"),
+                       helpText("Please select country to view other country result"),
+                       br(),
                        uiOutput("city_input"),
-                       # list(HTML('<p><img src="air_quality_level.png"/></p>'))
+                       helpText("Please select city to view other city result"),
                      ),
                      
                      mainPanel(
@@ -502,12 +230,6 @@ ui <- fluidPage(
                          highchartOutput('line_diagram_NO2'),
                          highchartOutput('line_diagram_O3')
                        ),
-                       # splitLayout(
-                       #   style = "border: 1px solid silver;",
-                       #   cellArgs = list(style = "padding: 6px"),
-                       #   highchartOutput('line_diagram_PM1'),
-                       #   highchartOutput('line_diagram_PM10')
-                       # ),
                        splitLayout(
                          style = "border: 1px solid silver;",
                          cellArgs = list(style = "padding: 6px"),
@@ -522,13 +244,18 @@ ui <- fluidPage(
                      )
                    )
           ),
-          tabPanel("Mobility (Graph)",
+          tabPanel("Types of Community Mobility",
                    sidebarLayout(
                      sidebarPanel(
                        width = 3,
-                       selectInput("region3", "Country:", 
-                                   choices = dropdown_country_list_globalMobility),
-                       uiOutput("state_input")
+                       selectInput("region3", h4("Country"), 
+                                   choices = dropdown_country_list_globalMobility,
+                                   selected = "GB"),
+                       helpText("Please select country to view other country result"),
+                       br(),
+                       uiOutput("state_input"),
+                       helpText("Please select city to view other city result"),
+                       br()
                      ),
                      
                      mainPanel(
@@ -550,6 +277,36 @@ ui <- fluidPage(
                          cellArgs = list(style = "padding: 6px"),
                          highchartOutput('line_diagram_workplaces_percent_change_from_baseline'),
                          highchartOutput('line_diagram_residential_percent_change_from_baseline')
+                       )
+                     )
+                   )
+          ),
+          tabPanel("Factor and Effect",
+                   sidebarLayout(
+                     sidebarPanel(
+                       width = 3,
+                       selectInput("region4", h4("Country"), 
+                                   choices = dropdown_country_residential_NO2,
+                                   selected = "GB"),
+                       helpText("Please select country to view other country result"),
+                       br(),
+                       uiOutput("state_input1"),
+                       helpText("Please select city to view other city result"),
+                       br()
+                     ),
+                     
+                     mainPanel(
+                       width = 9,
+                       splitLayout(
+                         style = "border: 1px solid silver;",
+                         cellArgs = list(style = "padding: 6px"),
+                         highchartOutput('line_diagram_residential_scatter'),
+                         highchartOutput('line_diagram_NO2_scatter')
+                       ),
+                       splitLayout(
+                         style = "border: 1px solid silver;",
+                         cellArgs = list(style = "padding: 6px"),
+                         highchartOutput('scatter_residential_NO2')
                        )
                      )
                    )
@@ -598,6 +355,14 @@ server <- function(input, output) {
       return("MY")
   })
   
+  selected_region4 <- reactive({
+    req(input$region4)
+    if(str_length(input$region4) > 0)
+      return(input$region4)
+    else
+      return("MY")
+  })
+  
   selected_city <- reactive({
     req(input$city)
     if(str_length(input$city) > 0)
@@ -610,6 +375,14 @@ server <- function(input, output) {
     req(input$state)
     if(str_length(input$state) > 0)
       return(input$state)
+    else
+      return("JOHOR")
+  })
+  
+  selected_state1 <- reactive({
+    req(input$state1)
+    if(str_length(input$state1) > 0)
+      return(input$state1)
     else
       return("JOHOR")
   })
@@ -638,7 +411,9 @@ server <- function(input, output) {
     
     df_country_airquality <- merge(x = df_country_airquality, y = country_worldCities, by = "Code", all.x = TRUE)
     df_country_airquality <- df_country_airquality[order(df_country_airquality$Country),]
-    
+    df_country_airquality <- df_country_airquality %>% 
+      select("Code", "Country")
+    df_country_airquality <- unique(df_country_airquality)
     country_list <- setNames(df_country_airquality$Code, df_country_airquality$Country)
     return(country_list)
   })
@@ -652,6 +427,14 @@ server <- function(input, output) {
   state_data <- reactive({
     req(input$region3)
     state_list <- setNames(country_state_globalMobility_airQuality$City[country_state_globalMobility_airQuality$Country == input$region3], country_state_globalMobility_airQuality$City[country_state_globalMobility_airQuality$Country == input$region3])
+    return(state_list)
+  })
+  
+  state_data1 <- reactive({
+    req(input$region4)
+    city_list_residential_NO2 <- list_residential_NO2$City[(list_residential_NO2$Country == input$region4)]
+    city_list_residential_NO2 <- sort(unique(city_list_residential_NO2))
+    state_list <- setNames(city_list_residential_NO2, city_list_residential_NO2)
     return(state_list)
   })
   # =================================================================================
@@ -725,82 +508,64 @@ server <- function(input, output) {
     
     d <- df$AQI
     d_desc <- 'Air Quality Index(AQI)'
+    df_2019_mean <- mean(df$AQI[df$Date < '2020-01-01'])
+    df_2020_mean <- mean(df$AQI[df$Date > '2019-12-31'])
+    
     if(t == 'AQI'){
       d <- df$AQI
       d_desc <- 'Air Quality Index(AQI)'
-      plotBands_list <- list(list(from = 0, to = 50, color = "rgba(0, 255, 0, 0.3)"), 
-                             list(from = 50, to = 100, color = "rgba(255, 255, 0, 0.3)"), 
-                             list(from = 100, to = 150, color = "rgba(255, 128, 0, 0.3)"), 
-                             list(from = 150, to = 200, color = "rgba(255, 0, 0, 0.3)"), 
-                             list(from = 200, to = 300, color = "rgba(128, 0, 128, 0.3)"), 
-                             list(from = 300, to = 500, color = "rgba(128, 0, 0, 0.3)"))
+      df_2019_mean <- mean(df$AQI[df$Date < '2020-01-01'])
+      df_2020_mean <- mean(df$AQI[df$Date > '2019-12-31'])
     }else if(t == 'CO'){
       d <- df$CO
       d_desc <- 'Carbon Monoxide(CO)'
-      plotBands_list <- list(list(from = 0, to = 5, color = "rgba(0, 255, 0, 0.3)"), 
-                             list(from = 5, to = 10, color = "rgba(255, 255, 0, 0.3)"), 
-                             list(from = 10, to = 12, color = "rgba(255, 128, 0, 0.3)"), 
-                             list(from = 12, to = 15, color = "rgba(255, 0, 0, 0.3)"), 
-                             list(from = 15, to = 30, color = "rgba(128, 0, 128, 0.3)"), 
-                             list(from = 30, to = 50, color = "rgba(128, 0, 0, 0.3)"))
+      df_2019_mean <- mean(df$CO[df$Date < '2020-01-01'])
+      df_2020_mean <- mean(df$CO[df$Date > '2019-12-31'])
     }else if(t == 'NO2'){
       d <- df$NO2
       d_desc <- 'Nitrogen Dioxide(NO2)'
-      plotBands_list <- list(list(from = 0, to = 54, color = "rgba(0, 255, 0, 0.3)"), 
-                             list(from = 54, to = 100, color = "rgba(255, 255, 0, 0.3)"), 
-                             list(from = 100, to = 360, color = "rgba(255, 128, 0, 0.3)"), 
-                             list(from = 360, to = 650, color = "rgba(255, 0, 0, 0.3)"), 
-                             list(from = 650, to = 1250, color = "rgba(128, 0, 128, 0.3)"), 
-                             list(from = 1250, to = 2049, color = "rgba(128, 0, 0, 0.3)"))
+      df_2019_mean <- mean(df$NO2[df$Date < '2020-01-01'])
+      df_2020_mean <- mean(df$NO2[df$Date > '2019-12-31'])
     }else if(t == 'O3'){
       d <- df$O3
       d_desc <- 'Ozone(O3)'
-      plotBands_list <- list(list(from = 0, to = 55, color = "rgba(0, 255, 0, 0.3)"), 
-                             list(from = 55, to = 70, color = "rgba(255, 255, 0, 0.3)"), 
-                             list(from = 70, to = 85, color = "rgba(255, 128, 0, 0.3)"), 
-                             list(from = 85, to = 105, color = "rgba(255, 0, 0, 0.3)"), 
-                             list(from = 105, to = 200, color = "rgba(128, 0, 128, 0.3)"), 
-                             list(from = 200, to = 604, color = "rgba(128, 0, 0, 0.3)"))
+      df_2019_mean <- mean(df$O3[df$Date < '2020-01-01'])
+      df_2020_mean <- mean(df$O3[df$Date > '2019-12-31'])
     }else if(t == 'PM10'){
       d <- df$PM10
       d_desc <- 'Particulate Matter 10(PM10)'
-      plotBands_list <- list(list(from = 0, to = 55, color = "rgba(0, 255, 0, 0.3)"), 
-                             list(from = 55, to = 155, color = "rgba(255, 255, 0, 0.3)"), 
-                             list(from = 155, to = 255, color = "rgba(255, 128, 0, 0.3)"), 
-                             list(from = 255, to = 355, color = "rgba(255, 0, 0, 0.3)"), 
-                             list(from = 355, to = 425, color = "rgba(128, 0, 128, 0.3)"), 
-                             list(from = 425, to = 604, color = "rgba(128, 0, 0, 0.3)"))
+      df_2019_mean <- mean(df$PM10[df$Date < '2020-01-01'])
+      df_2020_mean <- mean(df$PM10[df$Date > '2019-12-31'])
     }else if(t == 'PM25'){
       d <- df$PM25
       d_desc <- 'Particulate Matter 2.5(PM2.5)'
-      plotBands_list <- list(list(from = 0, to = 12, color = "rgba(0, 255, 0, 0.3)"), 
-                             list(from = 12, to = 35, color = "rgba(255, 255, 0, 0.3)"), 
-                             list(from = 35, to = 55, color = "rgba(255, 128, 0, 0.3)"), 
-                             list(from = 55, to = 150, color = "rgba(255, 0, 0, 0.3)"), 
-                             list(from = 150, to = 250, color = "rgba(128, 0, 128, 0.3)"), 
-                             list(from = 250, to = 500, color = "rgba(128, 0, 0, 0.3)"))
+      df_2019_mean <- mean(df$PM25[df$Date < '2020-01-01'])
+      df_2020_mean <- mean(df$PM25[df$Date > '2019-12-31'])
     }else if(t == 'SO2'){
       d <- df$SO2
       d_desc <- 'Sulfur Dioxide(SO2)'
-      plotBands_list <- list(list(from = 0, to = 35, color = "rgba(0, 255, 0, 0.3)"), 
-                             list(from = 35, to = 75, color = "rgba(255, 255, 0, 0.3)"), 
-                             list(from = 75, to = 185, color = "rgba(255, 128, 0, 0.3)"), 
-                             list(from = 185, to = 305, color = "rgba(255, 0, 0, 0.3)"), 
-                             list(from = 305, to = 605, color = "rgba(128, 0, 128, 0.3)"), 
-                             list(from = 605, to = 1004, color = "rgba(128, 0, 0, 0.3)"))
+      df_2019_mean <- mean(df$SO2[df$Date < '2020-01-01'])
+      df_2020_mean <- mean(df$SO2[df$Date > '2019-12-31'])
     }
     
     highchart() %>%
       hc_title(text = d_desc,
                style = list(fontSize = "15px")) %>%
-      hc_chart(type = 'line',
+      hc_chart(type = 'area',
                polar = FALSE) %>%
       hc_xAxis(categories = df$Date, 
                tickInterval = 30, 
                title = list(text = "Date")) %>%
-      hc_yAxis(title = list(text = "Median"),
-               plotBands = plotBands_list) %>%
-      hc_add_series(data = d, name = t, showInLegend = FALSE)
+      hc_yAxis(title = list(text = "Median")) %>%
+      hc_add_series(data = d, name = t, showInLegend = FALSE) %>% 
+      hc_annotations(
+        list(
+          labels = list(
+            list(point = list(x = 25, y = as.integer(df_2019_mean), xAxis = 0, yAxis = 100), text = paste('Average Concentration In 2019: ',as.integer(df_2019_mean))),
+            list(point = list(x = 175, y = as.integer(df_2020_mean), xAxis = 0, yAxis = 100), text = paste('Average Concentration In 2020: ',as.integer(df_2020_mean)))
+          )
+        )
+      )
   }
   
   create_hc_mobility <- function(t) {
@@ -809,6 +574,7 @@ server <- function(input, output) {
     d <- df$retail_and_recreation_percent_change_from_baseline
     d_desc <- 'Retail & Recreation'
     d_decs_sub <- mean(df$retail_and_recreation_percent_change_from_baseline)
+    
     if(t == 'retail_and_recreation_percent_change_from_baseline'){
       d <- df$retail_and_recreation_percent_change_from_baseline
       d_desc <- 'Retail & Recreation'
@@ -836,13 +602,89 @@ server <- function(input, output) {
     }
     
     highchart() %>%
-      hc_title(text = paste(d_desc,br(), '(', as.integer(d_decs_sub), '% compared to baseline)'),
+      hc_title(text = d_desc,
                style = list(fontSize = "15px")) %>%
-      hc_chart(type = 'line',
+      hc_chart(type = 'area',
                polar = FALSE) %>%
       hc_xAxis(categories = df$Date, tickInterval = 30, title = list(text = "Date")) %>%
       hc_yAxis(title = list(text = "% change from baseline")) %>%
-      hc_add_series(data = d, name = t, showInLegend = FALSE)
+      hc_add_series(data = d, name = t, showInLegend = FALSE) %>% 
+      hc_annotations(
+        list(
+          labels = list(
+            list(point = list(x = 25, y = as.integer(d_decs_sub), xAxis = 0, yAxis = 0), text = paste(as.integer(d_decs_sub), '% compared to baseline'))
+          )
+        )
+      )
+  }
+  
+  create_hc_residential <- function(t) {
+    df <- clean_globalMobility_airQuality[(clean_globalMobility_airQuality$Country == toupper(selected_region4()) & clean_globalMobility_airQuality$City == toupper(selected_state1())),]
+    
+    d <- df$residential_percent_change_from_baseline
+    d_desc <- 'Residential'
+    d_decs_sub <- mean(df$residential_percent_change_from_baseline)
+    
+    highchart() %>%
+      hc_title(text = d_desc,
+               style = list(fontSize = "15px")) %>%
+      hc_chart(type = 'area',
+               polar = FALSE) %>%
+      hc_xAxis(categories = df$Date, tickInterval = 30, title = list(text = "Date")) %>%
+      hc_yAxis(title = list(text = "% change from baseline")) %>%
+      hc_add_series(data = d, name = t, showInLegend = FALSE) %>% 
+      hc_annotations(
+        list(
+          labels = list(
+            list(point = list(x = 25, y = as.integer(d_decs_sub), xAxis = 0, yAxis = 0), text = paste(as.integer(d_decs_sub), '% compared to baseline'))
+          )
+        )
+      )
+  }
+  
+  create_hc_NO2 <- function(t) {
+    df <- airQuality_median[(airQuality_median$Country == toupper(selected_region4()) & airQuality_median$City == toupper(selected_state1())),]
+    
+    d <- df$NO2
+    d_desc <- 'Nitrogen Dioxide(NO2)'
+    df_2019_mean <- mean(df$NO2[df$Date < '2020-01-01'])
+    df_2020_mean <- mean(df$NO2[df$Date > '2019-12-31'])
+    
+    highchart() %>%
+      hc_title(text = d_desc,
+               style = list(fontSize = "15px")) %>%
+      hc_chart(type = 'area',
+               polar = FALSE) %>%
+      hc_xAxis(categories = df$Date, 
+               tickInterval = 30, 
+               title = list(text = "Date")) %>%
+      hc_yAxis(title = list(text = "Median")) %>%
+      hc_add_series(data = d, name = t, showInLegend = FALSE) %>% 
+      hc_annotations(
+        list(
+          labels = list(
+            list(point = list(x = 25, y = as.integer(df_2019_mean), xAxis = 0, yAxis = 100), text = paste('Average Concentration In 2019: ',as.integer(df_2019_mean))),
+            list(point = list(x = 175, y = as.integer(df_2020_mean), xAxis = 0, yAxis = 100), text = paste('Average Concentration In 2020: ',as.integer(df_2020_mean)))
+          )
+        )
+      )
+  }
+  
+  create_hc_scatter <- function() {
+    df_residential_NO2 <- globalMobility_airQuality[(globalMobility_airQuality$Country == toupper(selected_region4()) & globalMobility_airQuality$City == toupper(selected_state1())),]
+    df_residential_NO2 <- df_residential_NO2 %>% 
+        select('residential_percent_change_from_baseline','NO2')
+    df_residential_NO2 <- df_residential_NO2[(df_residential_NO2$NO2 != 0),]
+    df_residential_NO2 <- df_residential_NO2[order(df_residential_NO2$residential_percent_change_from_baseline),]
+    
+    model <- lm(NO2 ~ residential_percent_change_from_baseline, data = df_residential_NO2)
+    fit <- augment(model) %>% arrange(NO2)
+    
+    df_residential_NO2 %>% 
+      hchart('scatter', hcaes(x = residential_percent_change_from_baseline, y = NO2)) %>% 
+      hc_title(text = paste0("Relationship Between Residential Percentage and The Concentration of NO2"),
+               style = list(fontSize = "15px", useHTML = TRUE)) %>% 
+      hc_add_series(fit, type = "line", hcaes(x = residential_percent_change_from_baseline, y = .fitted),name = "Fit", id = "fit")
   }
   # =================================================================================
   
@@ -888,12 +730,12 @@ server <- function(input, output) {
   # =================================================================================
   output$country_input <- renderUI({
     req(input$aqi_no2_radio)
-    selectInput("region1", "Country:", country_data())
+    selectInput("region1", h4("Country"), country_data(), selected = "MY")
   })
   
   output$city_input <- renderUI({
     req(input$region2)
-    selectInput("city", "City:", city_data())
+    selectInput("city", h4("City"), city_data())
   })
   
   output$line_diagram_AQI <- renderHighchart({create_hc("AQI")})
@@ -908,7 +750,7 @@ server <- function(input, output) {
   # =================================================================================
   output$state_input <- renderUI({
     req(input$region3)
-    selectInput("state", "City:", state_data())
+    selectInput("state", h4("City"), state_data())
   })
   
   output$line_diagram_retail_and_recreation_percent_change_from_baseline <- renderHighchart({create_hc_mobility("retail_and_recreation_percent_change_from_baseline")})
@@ -917,6 +759,43 @@ server <- function(input, output) {
   output$line_diagram_transit_stations_percent_change_from_baseline <- renderHighchart({create_hc_mobility("transit_stations_percent_change_from_baseline")})
   output$line_diagram_workplaces_percent_change_from_baseline <- renderHighchart({create_hc_mobility("workplaces_percent_change_from_baseline")})
   output$line_diagram_residential_percent_change_from_baseline <- renderHighchart({create_hc_mobility("residential_percent_change_from_baseline")})
+  
+  output$state_input1 <- renderUI({
+    req(input$region4)
+    selectInput("state1", h4("City"), state_data1())
+  })
+  
+  output$line_diagram_residential_scatter <- renderHighchart({create_hc_residential("residential_percent_change_from_baseline")})
+  output$line_diagram_NO2_scatter <- renderHighchart({create_hc_NO2("NO2")})
+  output$scatter_residential_NO2 <- renderHighchart({create_hc_scatter()})
+  
+  output$img_ozone <- renderImage({
+    
+    image <- image_read("Fig_One_Ozone_Overview.jpg")
+    
+    # Numeric operators
+    tmpfile <- image %>%
+      image_resize('70%') %>%
+      image_write(tempfile(fileext='jpg'), format = 'jpg')
+    
+    # Return a list
+    list(src = tmpfile, contentType = "image/jpeg")
+  })
+  
+  output$img_aqi <- renderImage({
+    
+    image <- image_read("aqitableforcourse.png")
+    
+    # Numeric operators
+    tmpfile <- image %>%
+      image_resize('60%') %>%
+      image_write(tempfile(fileext='png'), format = 'png')
+    
+    # Return a list
+    list(src = tmpfile, contentType = "image/png")
+  })
+  
+  
   # =================================================================================
 }
 
