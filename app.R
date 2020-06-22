@@ -8,27 +8,19 @@
 #
 
 #-----------------------------Install and load the needed library-----------------------------#
-packages = c("shiny", "corrplot", "DataExplorer", "ggplot2",
-             "dplyr",  "tidyverse", "corrr", "skimr",
-             "expss", "fastDummies", "ggpubr", "scales", "lubridate", "stringr",
-             "highcharter")
+library(shiny)
+library(rlang)
+library(highcharter)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(lubridate)
+library(skimr)
 
-## Now load or install&load all
-package.check <- lapply(
-  packages,
-  FUN = function(x) {
-    if (!require(x, character.only = TRUE)) {
-      install.packages(x, dependencies = TRUE)
-      library(x, character.only = TRUE)
-    }
-  }
-)
-
-# setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-# getwd()
 #-------------------------Community Mobility Dataset----------------------
 # import and read the data collected, and assign it to a variable 
-globalMobility <- read.csv(file = "Dataset/CommunityMobility/Global_Mobility_Report.csv",header = T, stringsAsFactors=FALSE)
+globalMobility <- read.csv(file = "Global_Mobility_Report.csv",header = T, stringsAsFactors=FALSE)
 head(globalMobility)
 str(globalMobility)
 
@@ -91,7 +83,7 @@ head(globalMobility)
 str(globalMobility)
 
 #-------------------------World cities dataset----------------------
-worldCities <- read.csv(file = "Dataset/worldcities.csv",header = T, stringsAsFactors=FALSE)
+worldCities <- read.csv(file = "worldcities.csv",header = T, stringsAsFactors=FALSE)
 head(worldCities)
 
 # We will trim all whitespace and convert all to upper for comparison
@@ -202,10 +194,10 @@ globalMobility <- arrange.vars(globalMobility, c("country_region_code"=1, "count
 globalMobility[(globalMobility$country_region_code == "MY" & globalMobility$sub_region_1 != ""),]
 
 #-------------------------Air Quality dataset----------------------
-airQuality_2019Q4 <- read.csv(file = "Dataset/AirQuality/waqi-covid19-airqualitydata-2019Q4.csv",header = T, comment.char = '#', stringsAsFactors=FALSE)
+airQuality_2019Q4 <- read.csv(file = "waqi-covid19-airqualitydata-2019Q4.csv",header = T, comment.char = '#', stringsAsFactors=FALSE)
 head(airQuality_2019Q4)
 
-airQuality_2020 <- read.csv(file = "Dataset/AirQuality/waqi-covid19-airqualitydata-2020.csv",header = T, comment.char = '#', stringsAsFactors=FALSE)
+airQuality_2020 <- read.csv(file = "waqi-covid19-airqualitydata-2020.csv",header = T, comment.char = '#', stringsAsFactors=FALSE)
 head(airQuality_2020)
 
 airQuality <- rbind(airQuality_2019Q4,airQuality_2020)
@@ -896,7 +888,7 @@ server <- function(input, output) {
   # =================================================================================
   output$country_input <- renderUI({
     req(input$aqi_no2_radio)
-    selectInput("region1", "Country:", country_data(), selected = "my")
+    selectInput("region1", "Country:", country_data())
   })
   
   output$city_input <- renderUI({
